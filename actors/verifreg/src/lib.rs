@@ -14,22 +14,23 @@ use fvm_shared::bigint::BigInt;
 use fvm_shared::clock::ChainEpoch;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
-use fvm_shared::{ActorID, MethodNum, HAMT_BIT_WIDTH, METHOD_CONSTRUCTOR};
+use fvm_shared::{ActorID, HAMT_BIT_WIDTH, METHOD_CONSTRUCTOR};
 use log::info;
 use num_derive::FromPrimitive;
-use num_traits::{FromPrimitive, Signed, Zero};
+use num_traits::{Signed, Zero};
 
 use fil_actors_runtime::cbor::deserialize;
 use fil_actors_runtime::runtime::builtins::Type;
 use fil_actors_runtime::runtime::{ActorCode, Policy, Runtime};
 use fil_actors_runtime::{
-    actor_dispatch, actor_error, deserialize_block, make_map_with_root_and_bitwidth,
-    resolve_to_actor_id, restrict_internal_api, ActorDowncast, ActorError, BatchReturn, Map,
-    DATACAP_TOKEN_ACTOR_ADDR, STORAGE_MARKET_ACTOR_ADDR, SYSTEM_ACTOR_ADDR,
+    actor_dispatch, actor_error, deserialize_block, extract_send_result,
+    make_map_with_root_and_bitwidth, resolve_to_actor_id, ActorDowncast, ActorError, BatchReturn,
+    Map, DATACAP_TOKEN_ACTOR_ADDR, STORAGE_MARKET_ACTOR_ADDR, SYSTEM_ACTOR_ADDR,
     VERIFIED_REGISTRY_ACTOR_ADDR,
 };
 use fil_actors_runtime::{ActorContext, AsActorError, BatchReturnGen};
 use fvm_ipld_encoding::ipld_block::IpldBlock;
+use fvm_shared::sys::SendFlags;
 
 use crate::ext::datacap::{DestroyParams, MintParams};
 
@@ -104,8 +105,7 @@ impl Actor {
             ));
         }
 
-        let verifier = resolve_to_actor_id(rt, &params.address)?;
-
+        let verifier = resolve_to_actor_id(rt, &params.address, true)?;
         let verifier = Address::new_id(verifier);
 
         let st: State = rt.state()?;
@@ -134,13 +134,11 @@ impl Actor {
     }
 
     pub fn remove_verifier(rt: &mut impl Runtime, params: Address) -> Result<(), ActorError> {
-        let verifier = resolve_to_actor_id(rt, &params)?;
+        let verifier = resolve_to_actor_id(rt, &params, false)?;
         let verifier = Address::new_id(verifier);
 
-        let state: State = rt.state()?;
-        rt.validate_immediate_caller_is(std::iter::once(&state.root_key))?;
-
         rt.transaction(|st: &mut State, rt| {
+            rt.validate_immediate_caller_is(std::iter::once(&st.root_key))?;
             st.remove_verifier(rt.store(), &verifier).context("failed to remove verifier")
         })
     }
@@ -161,42 +159,41 @@ impl Actor {
             ));
         }
 
-        let client = resolve_to_actor_id(rt, &params.address)?;
+        let client = resolve_to_actor_id(rt, &params.address, true)?;
         let client = Address::new_id(client);
 
-        let st: State = rt.state()?;
-        if client == st.root_key {
-            return Err(actor_error!(illegal_argument, "root cannot be added as client"));
-        }
-
-        // Validate caller is one of the verifiers, i.e. has an allowance (even if zero).
-        let verifier = rt.message().caller();
-        let verifier_cap = st
-            .get_verifier_cap(rt.store(), &verifier)?
-            .ok_or_else(|| actor_error!(not_found, "caller {} is not a verifier", verifier))?;
-
-        // Disallow existing verifiers as clients.
-        if st.get_verifier_cap(rt.store(), &client)?.is_some() {
-            return Err(actor_error!(
-                illegal_argument,
-                "verifier {} cannot be added as a verified client",
-                client
-            ));
-        }
-
-        // Compute new verifier allowance.
-        if verifier_cap < params.allowance {
-            return Err(actor_error!(
-                illegal_argument,
-                "add more DataCap {} for client than allocated {}",
-                params.allowance,
-                verifier_cap
-            ));
-        }
-
-        // Reduce verifier's cap.
-        let new_verifier_cap = verifier_cap - &params.allowance;
         rt.transaction(|st: &mut State, rt| {
+            if client == st.root_key {
+                return Err(actor_error!(illegal_argument, "root cannot be added as client"));
+            }
+
+            // Validate caller is one of the verifiers, i.e. has an allowance (even if zero).
+            let verifier = rt.message().caller();
+            let verifier_cap = st
+                .get_verifier_cap(rt.store(), &verifier)?
+                .ok_or_else(|| actor_error!(not_found, "caller {} is not a verifier", verifier))?;
+
+            // Disallow existing verifiers as clients.
+            if st.get_verifier_cap(rt.store(), &client)?.is_some() {
+                return Err(actor_error!(
+                    illegal_argument,
+                    "verifier {} cannot be added as a verified client",
+                    client
+                ));
+            }
+
+            // Compute new verifier allowance.
+            if verifier_cap < params.allowance {
+                return Err(actor_error!(
+                    illegal_argument,
+                    "add more DataCap {} for client than allocated {}",
+                    params.allowance,
+                    verifier_cap
+                ));
+            }
+
+            // Reduce verifier's cap.
+            let new_verifier_cap = verifier_cap - &params.allowance;
             st.put_verifier(rt.store(), &verifier, &new_verifier_cap)
                 .context("failed to update verifier allowance")
         })?;
@@ -215,13 +212,13 @@ impl Actor {
         rt: &mut impl Runtime,
         params: RemoveDataCapParams,
     ) -> Result<RemoveDataCapReturn, ActorError> {
-        let client = resolve_to_actor_id(rt, &params.verified_client_to_remove)?;
+        let client = resolve_to_actor_id(rt, &params.verified_client_to_remove, false)?;
         let client = Address::new_id(client);
 
-        let verifier_1 = resolve_to_actor_id(rt, &params.verifier_request_1.verifier)?;
+        let verifier_1 = resolve_to_actor_id(rt, &params.verifier_request_1.verifier, true)?;
         let verifier_1 = Address::new_id(verifier_1);
 
-        let verifier_2 = resolve_to_actor_id(rt, &params.verifier_request_2.verifier)?;
+        let verifier_2 = resolve_to_actor_id(rt, &params.verifier_request_2.verifier, true)?;
         let verifier_2 = Address::new_id(verifier_2);
 
         if verifier_1 == verifier_2 {
@@ -474,26 +471,23 @@ impl Actor {
     ) -> Result<GetClaimsReturn, ActorError> {
         rt.validate_immediate_caller_accept_any()?;
         let mut batch_gen = BatchReturnGen::new(params.claim_ids.len());
-        let claims = rt
-            .transaction(|st: &mut State, rt| {
-                let mut st_claims = st.load_claims(rt.store())?;
-                let mut ret_claims = Vec::new();
-                for id in params.claim_ids {
-                    let maybe_claim = state::get_claim(&mut st_claims, params.provider, id)?;
-                    match maybe_claim {
-                        None => {
-                            batch_gen.add_fail(ExitCode::USR_NOT_FOUND);
-                            info!("no claim {} for provider {}", id, params.provider,);
-                        }
-                        Some(claim) => {
-                            batch_gen.add_success();
-                            ret_claims.push(claim.clone());
-                        }
-                    };
+        let st: State = rt.state()?;
+        let mut st_claims = st.load_claims(rt.store())?;
+        let mut claims = Vec::new();
+        for id in params.claim_ids {
+            let maybe_claim = state::get_claim(&mut st_claims, params.provider, id)?;
+            match maybe_claim {
+                None => {
+                    batch_gen.add_fail(ExitCode::USR_NOT_FOUND);
+                    info!("no claim {} for provider {}", id, params.provider,);
                 }
-                Ok(ret_claims)
-            })
-            .context("state transaction failed")?;
+                Some(claim) => {
+                    batch_gen.add_success();
+                    claims.push(claim.clone());
+                }
+            };
+        }
+
         Ok(GetClaimsReturn { batch_info: batch_gen.gen(), claims })
     }
 
@@ -696,8 +690,8 @@ impl Actor {
 
         // Save new allocations and updated claims.
         let ids = rt.transaction(|st: &mut State, rt| {
-            let ids = st.insert_allocations(rt.store(), client, new_allocs.into_iter())?;
-            st.put_claims(rt.store(), updated_claims.into_iter())?;
+            let ids = st.insert_allocations(rt.store(), client, new_allocs)?;
+            st.put_claims(rt.store(), updated_claims)?;
             Ok(ids)
         })?;
 
@@ -723,12 +717,12 @@ fn is_verifier(rt: &impl Runtime, st: &State, address: Address) -> Result<bool, 
 fn balance(rt: &mut impl Runtime, owner: &Address) -> Result<DataCap, ActorError> {
     let params = IpldBlock::serialize_cbor(owner)?;
     let x: TokenAmount = deserialize_block(
-        rt.send(
+        extract_send_result(rt.send_simple(
             &DATACAP_TOKEN_ACTOR_ADDR,
             ext::datacap::Method::Balance as u64,
             params,
             TokenAmount::zero(),
-        )
+        ))
         .context(format!("failed to query datacap balance of {}", owner))?,
     )?;
     Ok(tokens_to_datacap(&x))
@@ -743,12 +737,12 @@ fn mint(
 ) -> Result<(), ActorError> {
     let token_amt = datacap_to_tokens(amount);
     let params = MintParams { to: *to, amount: token_amt, operators };
-    rt.send(
+    extract_send_result(rt.send_simple(
         &DATACAP_TOKEN_ACTOR_ADDR,
         ext::datacap::Method::Mint as u64,
         IpldBlock::serialize_cbor(&params)?,
         TokenAmount::zero(),
-    )
+    ))
     .context(format!("failed to send mint {:?} to datacap", params))?;
     Ok(())
 }
@@ -761,12 +755,12 @@ fn burn(rt: &mut impl Runtime, amount: &DataCap) -> Result<(), ActorError> {
 
     let token_amt = datacap_to_tokens(amount);
     let params = BurnParams { amount: token_amt };
-    rt.send(
+    extract_send_result(rt.send_simple(
         &DATACAP_TOKEN_ACTOR_ADDR,
         ext::datacap::Method::Burn as u64,
         IpldBlock::serialize_cbor(&params)?,
         TokenAmount::zero(),
-    )
+    ))
     .context(format!("failed to send burn {:?} to datacap", params))?;
     // The burn return value gives the new balance, but it's dropped here.
     // This also allows the check for zero burns inside this method.
@@ -780,12 +774,12 @@ fn destroy(rt: &mut impl Runtime, owner: &Address, amount: &DataCap) -> Result<(
     }
     let token_amt = datacap_to_tokens(amount);
     let params = DestroyParams { owner: *owner, amount: token_amt };
-    rt.send(
+    extract_send_result(rt.send_simple(
         &DATACAP_TOKEN_ACTOR_ADDR,
         ext::datacap::Method::Destroy as u64,
         IpldBlock::serialize_cbor(&params)?,
         TokenAmount::zero(),
-    )
+    ))
     .context(format!("failed to send destroy {:?} to datacap", params))?;
     Ok(())
 }
@@ -798,12 +792,12 @@ fn transfer(rt: &mut impl Runtime, to: ActorID, amount: &DataCap) -> Result<(), 
         amount: token_amt,
         operator_data: Default::default(),
     };
-    rt.send(
+    extract_send_result(rt.send_simple(
         &DATACAP_TOKEN_ACTOR_ADDR,
         ext::datacap::Method::Transfer as u64,
         IpldBlock::serialize_cbor(&params)?,
         TokenAmount::zero(),
-    )
+    ))
     .context(format!("failed to send transfer to datacap {:?}", params))?;
     Ok(())
 }
@@ -876,7 +870,7 @@ fn remove_data_cap_request_is_valid(
 
     let payload = [SIGNATURE_DOMAIN_SEPARATION_REMOVE_DATA_CAP, b.bytes()].concat();
 
-    rt.send(
+    if !extract_send_result(rt.send(
         &request.verifier,
         ext::account::AUTHENTICATE_MESSAGE_METHOD,
         IpldBlock::serialize_cbor(&ext::account::AuthenticateMessageParams {
@@ -884,9 +878,16 @@ fn remove_data_cap_request_is_valid(
             message: payload,
         })?,
         TokenAmount::zero(),
-    )
-    .map_err(|e| e.wrap("proposal authentication failed"))?;
-    Ok(())
+        None,
+        SendFlags::READ_ONLY,
+    ))
+    .and_then(deserialize_block)
+    .context("proposal authentication failed")?
+    {
+        Err(actor_error!(illegal_argument, "proposal authentication failed"))
+    } else {
+        Ok(())
+    }
 }
 
 // Deserializes and validates a receiver hook payload, expecting only an FRC-46 transfer.

@@ -5,12 +5,13 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
+
 use test_vm::util::{apply_code, apply_ok, create_accounts, generate_deal_proposal};
 use test_vm::VM;
 
 // Using a deal proposal as a serialized message, we confirm that:
-// - calls to authenticate_message with valid signatures succeed
-// - calls to authenticate_message with invalid signatures fail
+// - calls to Account::authenticate_message with valid signatures succeed
+// - calls to Account::authenticate_message with invalid signatures fail
 #[test]
 fn account_authenticate_message() {
     let store = MemoryBlockstore::new();

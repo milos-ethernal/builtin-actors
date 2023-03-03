@@ -9,15 +9,15 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
-use fvm_shared::{MethodNum, HAMT_BIT_WIDTH, METHOD_CONSTRUCTOR};
+use fvm_shared::{HAMT_BIT_WIDTH, METHOD_CONSTRUCTOR};
 use num_derive::FromPrimitive;
-use num_traits::{FromPrimitive, Zero};
+use num_traits::Zero;
 
 use fil_actors_runtime::cbor::serialize_vec;
 use fil_actors_runtime::runtime::{ActorCode, Primitives, Runtime};
 use fil_actors_runtime::{
-    actor_dispatch, actor_error, make_empty_map, make_map_with_root, resolve_to_actor_id,
-    restrict_internal_api, ActorContext, ActorError, AsActorError, Map, INIT_ACTOR_ADDR,
+    actor_dispatch, actor_error, extract_send_result, make_empty_map, make_map_with_root,
+    resolve_to_actor_id, ActorContext, ActorError, AsActorError, Map, INIT_ACTOR_ADDR,
 };
 
 pub use self::state::*;
@@ -71,7 +71,7 @@ impl Actor {
         let mut resolved_signers = Vec::with_capacity(params.signers.len());
         let mut dedup_signers = BTreeSet::new();
         for signer in &params.signers {
-            let resolved = resolve_to_actor_id(rt, signer)?;
+            let resolved = resolve_to_actor_id(rt, signer, true)?;
             if !dedup_signers.insert(resolved) {
                 return Err(
                     actor_error!(illegal_argument; "duplicate signer not allowed: {}", signer),
@@ -257,7 +257,7 @@ impl Actor {
     pub fn add_signer(rt: &mut impl Runtime, params: AddSignerParams) -> Result<(), ActorError> {
         let receiver = rt.message().receiver();
         rt.validate_immediate_caller_is(std::iter::once(&receiver))?;
-        let resolved_new_signer = resolve_to_actor_id(rt, &params.signer)?;
+        let resolved_new_signer = resolve_to_actor_id(rt, &params.signer, true)?;
 
         rt.transaction(|st: &mut State, _| {
             if st.signers.len() >= SIGNERS_MAX {
@@ -288,7 +288,7 @@ impl Actor {
     ) -> Result<(), ActorError> {
         let receiver = rt.message().receiver();
         rt.validate_immediate_caller_is(std::iter::once(&receiver))?;
-        let resolved_old_signer = resolve_to_actor_id(rt, &params.signer)?;
+        let resolved_old_signer = resolve_to_actor_id(rt, &params.signer, false)?;
 
         rt.transaction(|st: &mut State, rt| {
             if !st.is_signer(&Address::new_id(resolved_old_signer)) {
@@ -335,8 +335,8 @@ impl Actor {
     pub fn swap_signer(rt: &mut impl Runtime, params: SwapSignerParams) -> Result<(), ActorError> {
         let receiver = rt.message().receiver();
         rt.validate_immediate_caller_is(std::iter::once(&receiver))?;
-        let from_resolved = resolve_to_actor_id(rt, &params.from)?;
-        let to_resolved = resolve_to_actor_id(rt, &params.to)?;
+        let from_resolved = resolve_to_actor_id(rt, &params.from, false)?;
+        let to_resolved = resolve_to_actor_id(rt, &params.to, true)?;
 
         rt.transaction(|st: &mut State, rt| {
             if !st.is_signer(&Address::new_id(from_resolved)) {
@@ -472,7 +472,12 @@ fn execute_transaction_if_approved(
     if threshold_met {
         st.check_available(rt.current_balance(), &txn.value, rt.curr_epoch())?;
 
-        match rt.send(&txn.to, txn.method, txn.params.clone().into(), txn.value.clone()) {
+        match extract_send_result(rt.send_simple(
+            &txn.to,
+            txn.method,
+            txn.params.clone().into(),
+            txn.value.clone(),
+        )) {
             Ok(Some(r)) => {
                 out = RawBytes::new(r.data);
             }
