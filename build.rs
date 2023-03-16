@@ -41,6 +41,8 @@ const EXTRA_CARGO_FEATURES: &[(&str, &[&str])] =
 
 const NETWORK_ENV: &str = "BUILD_FIL_NETWORK";
 
+const ACTORS_PATH_ENV: &str = "ACTORS_DIR_PATH";
+
 /// Returns the configured network name, checking both the environment and feature flags.
 fn network_name() -> String {
     let env_network = std::env::var_os(NETWORK_ENV);
@@ -202,6 +204,32 @@ fn main() -> Result<(), Box<dyn Error>> {
             });
         println!("cargo:warning=added {} ({}) to bundle with CID {}", name, id, cid);
     }
+
+    // Add new actors to bundle
+    
+    const NEW_ACTORS: &[&Package] = &["hello_world_actor"];
+    let actor_dir = std::env::var_os(ACTORS_PATH_ENV)
+        .expect("env variable ACTORS_DIR_PATH pointing to the actor directory not set, follow instruction");
+
+    // With 16 builtin actors first new actor gets id 17
+    let mut actor_id = 17; 
+
+    for &pkg in NEW_ACTORS.iter() {
+        
+        let bytecode_path = Path::new(&actor_dir).join(format!("{}.compact.wasm", &pkg));
+    
+        let cid = bundler
+            .add_from_file(actor_id, pkg.clone().into(), None, &bytecode_path)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to add actor to bundle: {}", err
+                )
+            });
+        
+        println!("cargo:warning=added {} ({}) to bundle with CID {}", pkg, actor_id, cid);
+        actor_id += 1;
+    }
+    
     bundler.finish().expect("failed to finish bundle");
 
     println!("cargo:warning=bundle={}", dst.display());
