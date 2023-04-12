@@ -31,6 +31,7 @@ pub enum Method {
     Constructor = METHOD_CONSTRUCTOR,
     Exec = 2,
     Exec4 = 3,
+    InstallCode = 4,
 }
 
 /// Init actor
@@ -162,6 +163,41 @@ impl Actor {
 
         Ok(Exec4Return { id_address: Address::new_id(id_address), robust_address })
     }
+
+    pub fn install(rt: &impl Runtime, params: InstallParams) -> Result<InstallReturn, ActorError> {
+        use cid::multihash::Code;
+        use fvm_ipld_blockstore::{Block, Blockstore};
+
+        rt.validate_immediate_caller_accept_any()?;
+
+        let (code_cid, installed) = rt.transaction(|st: &mut State, rt| {
+            let code = params.code.bytes();
+            let code_cid = rt.store().put(Code::Blake2b256, &Block::new(0x55, code)).context_code(
+                ExitCode::USR_SERIALIZATION,
+                "failed to put code into the bockstore",
+            )?;
+
+            if st.is_installed_actor(rt.store(), &code_cid).context_code(
+                ExitCode::USR_ILLEGAL_STATE,
+                "failed to check state for installed actor",
+            )? {
+                return Ok((code_cid, false));
+            }
+
+            rt.install_actor(&code_cid).context_code(
+                ExitCode::USR_ILLEGAL_ARGUMENT,
+                "failed to check state for installed actor",
+            )?;
+
+            st.add_installed_actor(rt.store(), code_cid).context_code(
+                ExitCode::USR_ILLEGAL_STATE,
+                "failed to add installed actor to state",
+            )?;
+            Ok((code_cid, true))
+        })?;
+
+        Ok(InstallReturn { code_cid, installed })
+    }
 }
 
 impl ActorCode for Actor {
@@ -175,15 +211,17 @@ impl ActorCode for Actor {
         Constructor => constructor,
         Exec => exec,
         Exec4 => exec4,
+        InstallCode => install,
     }
 }
 
-fn can_exec(rt: &impl Runtime, caller: &Cid, exec: &Cid) -> bool {
-    rt.resolve_builtin_actor_type(exec)
-        .map(|typ| match typ {
-            Type::Multisig | Type::PaymentChannel => true,
-            Type::Miner if rt.resolve_builtin_actor_type(caller) == Some(Type::Power) => true,
-            _ => false,
-        })
-        .unwrap_or(false)
+fn can_exec(_rt: &impl Runtime, _caller: &Cid, _exec: &Cid) -> bool {
+    // rt.resolve_builtin_actor_type(exec)
+    //     .map(|typ| match typ {
+    //         Type::Multisig | Type::PaymentChannel => true,
+    //         Type::Miner if rt.resolve_builtin_actor_type(caller) == Some(Type::Power) => true,
+    //         _ => false,
+    //     })
+    //     .unwrap_or(false)
+    true
 }

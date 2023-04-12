@@ -311,6 +311,8 @@ pub trait Primitives {
         hash: &[u8; SECP_SIG_MESSAGE_HASH_SIZE],
         signature: &[u8; SECP_SIG_LEN],
     ) -> Result<[u8; SECP_PUB_LEN], anyhow::Error>;
+
+    fn install_actor(&self, code_cid: &Cid) -> Result<(), anyhow::Error>;
 }
 
 /// filcrypto verification primitives provided by the runtime

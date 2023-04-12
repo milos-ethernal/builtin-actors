@@ -410,6 +410,10 @@ where
             .map_err(|e| anyhow!("failed to compute unsealed sector CID; exit code: {}", e))
     }
 
+    fn install_actor(&self, code_id: &Cid) -> Result<(), Error> {
+        fvm::actor::install_actor(code_id).map_err(|_| Error::msg("failed to install actor"))
+    }
+
     fn hash(&self, hasher: SupportedHashes, data: &[u8]) -> Vec<u8> {
         fvm::crypto::hash_owned(hasher, data)
     }

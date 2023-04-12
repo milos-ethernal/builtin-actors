@@ -38,3 +38,14 @@ pub struct Exec4Params {
 
 /// Init actor Exec4 Return value
 pub type Exec4Return = ExecReturn;
+
+#[derive(Serialize_tuple, Deserialize_tuple)]
+pub struct InstallParams {
+    pub code: RawBytes,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple)]
+pub struct InstallReturn {
+    pub code_cid: Cid,
+    pub installed: bool,
+}

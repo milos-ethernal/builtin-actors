@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0, MIT
 
 use cid::Cid;
+use cid::multihash::Code;
 use fil_actors_runtime::{
     actor_error, make_empty_map, make_map_with_root_and_bitwidth, ActorError, AsActorError,
     FIRST_NON_SINGLETON_ADDR,
 };
 use fvm_ipld_blockstore::Blockstore;
-use fvm_ipld_encoding::tuple::*;
+use fvm_ipld_encoding::{tuple::*, CborStore};
 use fvm_shared::address::{Address, Protocol};
 use fvm_shared::error::ExitCode;
 use fvm_shared::{ActorID, HAMT_BIT_WIDTH};
@@ -18,6 +19,7 @@ pub struct State {
     pub address_map: Cid,
     pub next_id: ActorID,
     pub network_name: String,
+    pub installed_actors: Cid,
 }
 
 impl State {
@@ -25,7 +27,11 @@ impl State {
         let empty_map = make_empty_map::<_, ()>(store, HAMT_BIT_WIDTH)
             .flush()
             .context_code(ExitCode::USR_ILLEGAL_STATE, "failed to create empty map")?;
-        Ok(Self { address_map: empty_map, next_id: FIRST_NON_SINGLETON_ADDR, network_name })
+        let installed_actors = store.put_cbor(&Vec::<Cid>::new(), Code::Blake2b256).context_code(
+            ExitCode::USR_ILLEGAL_STATE,
+            "failed to create installed actors object",
+        )?;
+        Ok(Self { address_map: empty_map, next_id: FIRST_NON_SINGLETON_ADDR, network_name, installed_actors })
     }
 
     /// Maps argument addresses to to a new or existing actor ID.
@@ -107,5 +113,41 @@ impl State {
             .get(&addr.to_bytes())
             .context_code(ExitCode::USR_ILLEGAL_STATE, "failed to get address entry")?;
         Ok(found.copied().map(Address::new_id))
+    }
+
+    /// Check to see if an actor is already installed
+    pub fn is_installed_actor<BS: Blockstore>(
+        &self,
+        store: &BS,
+        cid: &Cid,
+    ) -> Result<bool, ActorError> {
+        let installed: Vec<Cid> = match store
+            .get_cbor(&self.installed_actors)
+            .context_code(ExitCode::USR_ILLEGAL_STATE, "failed to load installed actor list")?
+        {
+            Some(v) => v,
+            None => Vec::new(),
+        };
+        Ok(installed.contains(cid))
+    }
+
+    /// Adds a new code Cid to the list of installed actors.
+    pub fn add_installed_actor<BS: Blockstore>(
+        &mut self,
+        store: &BS,
+        cid: Cid,
+    ) -> Result<(), ActorError> {
+        let mut installed: Vec<Cid> = match store
+            .get_cbor(&self.installed_actors)
+            .context_code(ExitCode::USR_ILLEGAL_STATE, "failed to load installed actor list")?
+        {
+            Some(v) => v,
+            None => Vec::new(),
+        };
+        installed.push(cid);
+        self.installed_actors = store
+            .put_cbor(&installed, Code::Blake2b256)
+            .context_code(ExitCode::USR_ILLEGAL_STATE, "failed to save installed actor list")?;
+        Ok(())
     }
 }

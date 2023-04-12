@@ -1372,6 +1372,10 @@ impl<BS> Primitives for MockRuntime<BS> {
         Ok(exp.cid)
     }
 
+    fn install_actor(&self, _code_cid: &Cid) -> anyhow::Result<(), anyhow::Error> {
+        Ok(())
+    }
+
     fn recover_secp_public_key(
         &self,
         hash: &[u8; SECP_SIG_MESSAGE_HASH_SIZE],
