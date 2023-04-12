@@ -1,8 +1,8 @@
 // Copyright 2019-2022 ChainSafe Systems
 // SPDX-License-Identifier: Apache-2.0, MIT
 
-use cid::Cid;
 use cid::multihash::Code;
+use cid::Cid;
 use fil_actors_runtime::{
     actor_error, make_empty_map, make_map_with_root_and_bitwidth, ActorError, AsActorError,
     FIRST_NON_SINGLETON_ADDR,
@@ -31,7 +31,12 @@ impl State {
             ExitCode::USR_ILLEGAL_STATE,
             "failed to create installed actors object",
         )?;
-        Ok(Self { address_map: empty_map, next_id: FIRST_NON_SINGLETON_ADDR, network_name, installed_actors })
+        Ok(Self {
+            address_map: empty_map,
+            next_id: FIRST_NON_SINGLETON_ADDR,
+            network_name,
+            installed_actors,
+        })
     }
 
     /// Maps argument addresses to to a new or existing actor ID.

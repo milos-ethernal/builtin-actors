@@ -1299,6 +1299,10 @@ where
         Ok(make_piece_cid(b"unsealed from itest vm"))
     }
 
+    fn install_actor(&self, _: &Cid) -> Result<(), anyhow::Error> {
+        panic!("TODO implement me")
+    }
+
     fn hash(&self, hasher: SupportedHashes, data: &[u8]) -> Vec<u8> {
         let hasher = Code::try_from(hasher as u64).unwrap(); // supported hashes are all implemented in multihash
         hasher.digest(data).digest().to_owned()
@@ -1342,6 +1346,10 @@ where
         pieces: &[PieceInfo],
     ) -> Result<Cid, anyhow::Error> {
         self.v.compute_unsealed_sector_cid(proof_type, pieces)
+    }
+
+    fn install_actor(&self, _: &Cid) -> Result<(), anyhow::Error> {
+        panic!("TODO implement me")
     }
 
     fn hash(&self, hasher: SupportedHashes, data: &[u8]) -> Vec<u8> {
