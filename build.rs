@@ -207,7 +207,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Add new actors to bundle
     
-    const NEW_ACTORS: &[&Package] = &["hello_world_actor"];
+    const NEW_ACTORS: &[&Package] = &["escrow"];
     let actor_dir = std::env::var_os(ACTORS_PATH_ENV)
         .expect("env variable ACTORS_DIR_PATH pointing to the actor directory not set, follow instruction");
 

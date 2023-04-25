@@ -24,7 +24,7 @@ pub enum Type {
     EVM = 14,
     EAM = 15,
     EthAccount = 16,
-    HelloWorldActor = 17,
+    Escrow = 17,
 }
 
 impl Type {
@@ -46,7 +46,7 @@ impl Type {
             Type::EVM => "evm",
             Type::EAM => "eam",
             Type::EthAccount => "ethaccount",
-            Type::HelloWorldActor => "hello_world_actor"
+            Type::Escrow => "escrow"
         }
     }
 }
