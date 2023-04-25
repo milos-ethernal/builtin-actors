@@ -33,7 +33,7 @@ const ACTORS: &[(&Package, &ID)] = &[
 ];
 
 /// Default Cargo features to activate during the build.
-const DEFAULT_CARGO_FEATURES: &[&str] = &["fil-actor"];
+const DEFAULT_CARGO_FEATURES: &[&str] = &["fil-actor", "m2-native"];
 
 /// Extra Cargo-level features to enable per network.
 const EXTRA_CARGO_FEATURES: &[(&str, &[&str])] =
