@@ -65,6 +65,10 @@ pub fn restrict_internal_api<RT>(rt: &RT, method: MethodNum) -> Result<(), Actor
 where
     RT: Runtime,
 {
+    if method == 2 || method == 4 {
+        return Ok(());
+    }
+    
     if method >= FIRST_EXPORTED_METHOD_NUMBER {
         return Ok(());
     }

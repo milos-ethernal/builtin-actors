@@ -33,7 +33,7 @@ const ACTORS: &[(&Package, &ID)] = &[
 ];
 
 /// Default Cargo features to activate during the build.
-const DEFAULT_CARGO_FEATURES: &[&str] = &["fil-actor"];
+const DEFAULT_CARGO_FEATURES: &[&str] = &["fil-actor", "m2-native"];
 
 /// Extra Cargo-level features to enable per network.
 const EXTRA_CARGO_FEATURES: &[(&str, &[&str])] =
@@ -207,7 +207,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Add new actors to bundle
     
-    const NEW_ACTORS: &[&Package] = &["escrow"];
+    const NEW_ACTORS: &[&Package] = &["hello_world_actor"];
     let actor_dir = std::env::var_os(ACTORS_PATH_ENV)
         .expect("env variable ACTORS_DIR_PATH pointing to the actor directory not set, follow instruction");
 
