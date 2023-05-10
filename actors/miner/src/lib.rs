@@ -272,12 +272,8 @@ impl Actor {
         };
         let state: State = rt.state()?;
         let info = get_miner_info(rt.store(), &state)?;
-        let is_controlling = info
-            .control_addresses
-            .iter()
-            .chain(&[info.worker, info.owner])
-            .into_iter()
-            .any(|a| *a == input);
+        let is_controlling =
+            info.control_addresses.iter().chain(&[info.worker, info.owner]).any(|a| *a == input);
 
         Ok(IsControllingAddressReturn { is_controlling })
     }
@@ -551,15 +547,6 @@ impl Actor {
             rt.validate_immediate_caller_is(
                 info.control_addresses.iter().chain(&[info.worker, info.owner]),
             )?;
-
-            // Verify that the miner has passed exactly 1 proof.
-            if params.proofs.len() != 1 {
-                return Err(actor_error!(
-                    illegal_argument,
-                    "expected exactly one proof, got {}",
-                    params.proofs.len()
-                ));
-            }
 
             // Make sure the miner is using the correct proof type.
             if params.proofs[0].post_proof != info.window_post_proof_type {
@@ -838,6 +825,13 @@ impl Actor {
                 e.downcast_default(ExitCode::USR_ILLEGAL_STATE, "failed to get precommits")
             })?;
 
+        if precommits.is_empty() {
+            return Err(actor_error!(
+                illegal_state,
+                "bitfield non-empty but zero precommits read from state"
+            ));
+        }
+
         // validate each precommit
         let mut precommits_to_confirm = Vec::new();
         for (i, precommit) in precommits.iter().enumerate() {
@@ -920,12 +914,6 @@ impl Actor {
         }
 
         let seal_proof = precommits[0].info.seal_proof;
-        if precommits.is_empty() {
-            return Err(actor_error!(
-                illegal_state,
-                "bitfield non-empty but zero precommits read from state"
-            ));
-        }
         rt.verify_aggregate_seals(&AggregateSealVerifyProofAndInfos {
             miner: miner_actor_id,
             seal_proof,
@@ -1552,7 +1540,7 @@ impl Actor {
 
                 // Find the proving period start for the deadline in question.
                 let mut pp_start = dl_info.period_start;
-                if dl_info.index < params.deadline as u64 {
+                if dl_info.index < params.deadline {
                     pp_start -= policy.wpost_proving_period
                 }
                 let target_deadline =
@@ -4537,7 +4525,7 @@ fn get_claims(
     let claims_ret: ext::verifreg::GetClaimsReturn =
         deserialize_block(extract_send_result(rt.send_simple(
             &VERIFIED_REGISTRY_ACTOR_ADDR,
-            ext::verifreg::GET_CLAIMS_METHOD as u64,
+            ext::verifreg::GET_CLAIMS_METHOD,
             IpldBlock::serialize_cbor(&params)?,
             TokenAmount::zero(),
         ))?)?;
